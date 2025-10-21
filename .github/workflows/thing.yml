@@ -1,7 +1,7 @@
 # This is a GitHub Actions workflow file.
 # It defines an automated process that runs on GitHub's servers.
 
-name: Website Mirror original
+name: Website Mirror
 
 # This allows you to run the workflow manually from the Actions tab
 on:
@@ -47,5 +47,9 @@ jobs:
         with:
           name: website-mirror
           # Get the domain name from the URL to use as the path
-          path: $(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)
+          path: ${{ steps.get_domain.outputs.DOMAIN_NAME }}
+      
+      - name: Get Domain Name
+        id: get_domain
+        run: echo "DOMAIN_NAME=$(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)" >> $GITHUB_OUTPUT
 
