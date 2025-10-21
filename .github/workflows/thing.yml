@@ -21,7 +21,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Run wget to mirror the entire website
+      # Step 2: Calculate the domain name to use in subsequent steps
+      - name: Get Domain Name
+        id: get_domain
+        run: echo "DOMAIN_NAME=$(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)" >> $GITHUB_OUTPUT
+
+      # Step 3: Run wget to mirror the entire website
       - name: Mirror Website with Wget
         run: |
           # Use wget to create a full offline mirror of the site.
@@ -40,7 +45,7 @@ jobs:
             --execute robots=off \
             "${{ github.event.inputs.url }}"
 
-      # Step 3: The downloaded files are saved in a folder named after the website's domain.
+      # Step 4: The downloaded files are saved in a folder named after the website's domain.
       # This step uploads that folder as an artifact.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -48,8 +53,4 @@ jobs:
           name: website-mirror
           # Get the domain name from the URL to use as the path
           path: ${{ steps.get_domain.outputs.DOMAIN_NAME }}
-      
-      - name: Get Domain Name
-        id: get_domain
-        run: echo "DOMAIN_NAME=$(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)" >> $GITHUB_OUTPUT
 
