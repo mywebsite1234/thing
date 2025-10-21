@@ -88,7 +88,10 @@ jobs:
                     downloadedUrls.add(absoluteUrl);
                     const assetPath = new url.URL(absoluteUrl).pathname;
                     let localPath = path.join(domainName, assetPath.startsWith('/') ? assetPath.substring(1) : assetPath);
-                    if (localPath.endsWith('/') || path.extname(localPath) === '') localPath = path.join(localPath, 'index.html');
+                    // THIS IS THE FIX: Check if path ends with slash OR has no extension
+                    if (localPath.endsWith('/') || path.extname(localPath) === '') {
+                       localPath = path.join(localPath, 'index.html');
+                    }
                     
                     console.log(\`  [+] Queued: \${absoluteUrl}\`);
                     assetPromises.push(downloadAsset(absoluteUrl, localPath));
@@ -110,7 +113,7 @@ jobs:
           "
       # Step 5: Take the folder with the downloaded website and upload it as an artifact
       - name: Upload artifact
-        uses: actions/upload-artifact@v4 # <-- THIS IS THE FIX
+        uses: actions/upload-artifact@v4
         with:
           name: website-files
           path: ${{ steps.scrape_script.outputs.domain_name }}
