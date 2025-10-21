@@ -1,18 +1,18 @@
 # This is a GitHub Actions workflow file.
 # It defines an automated process that runs on GitHub's servers.
 
-name: Website Scraper
+name: Website Mirror
 
 # This allows you to run the workflow manually from the Actions tab
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'The full URL of the website to scrape'
+        description: 'The full URL of the website to mirror'
         required: true
 
 jobs:
-  scrape-and-package:
+  mirror-and-package:
     # The job will run on a standard Ubuntu virtual machine provided by GitHub
     runs-on: ubuntu-latest
 
@@ -21,87 +21,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Set up Node.js on the virtual machine
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      # Step 3: Install Puppeteer (to browse) and Cheerio (to edit HTML)
-      - name: Install dependencies
-        run: npm install puppeteer cheerio
-
-      # Step 4: Run the website extractor script
-      - name: Run Website Extractor Script
-        id: scrape_script
+      # Step 2: Run wget to mirror the entire website
+      - name: Mirror Website with Wget
         run: |
-          # Set the domain name as an output for the next step
-          DOMAIN=$(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)
-          echo "domain_name=$DOMAIN" >> $GITHUB_OUTPUT
+          # Use wget to create a full offline mirror of the site.
+          # --mirror: Enables options suitable for mirroring.
+          # --convert-links: Converts links to work for local viewing.
+          # --adjust-extension: Adds .html to filenames where needed.
+          # --page-requisites: Downloads all assets like CSS, JS, and images.
+          # --no-parent: Prevents wget from going to parent directories.
+          # --execute robots=off: Ignores the website's robots.txt file.
+          wget \
+            --mirror \
+            --convert-links \
+            --adjust-extension \
+            --page-requisites \
+            --no-parent \
+            --execute robots=off \
+            "${{ github.event.inputs.url }}"
 
-          # Create the directory for the output
-          mkdir -p $DOMAIN
-
-          node -e "
-            const puppeteer = require('puppeteer');
-            const cheerio = require('cheerio');
-            const fs = require('fs');
-            const path = require('path');
-            const url = require('url');
-
-            const baseUrl = '${{ github.event.inputs.url }}';
-            const domainName = '$DOMAIN';
-            const savePath = path.join(domainName, 'index.html');
-
-            console.log(\`[*] Starting scrape for: \${baseUrl}\`);
-
-            (async () => {
-              try {
-                console.log('[*] Launching headless browser...');
-                const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-                const page = await browser.newPage();
-                
-                console.log(\`[*] Navigating to \${baseUrl}...\`);
-                await page.goto(baseUrl, { waitUntil: 'networkidle2', timeout: 90000 });
-                
-                console.log('[*] Page loaded. Getting content...');
-                const htmlContent = await page.content();
-                await browser.close();
-                console.log('[*] Browser closed.');
-
-                console.log('[*] Processing HTML to fix asset paths...');
-                const \$ = cheerio.load(htmlContent);
-
-                // Find all tags with src or href attributes and convert paths to absolute
-                \$('link, script, img, a, source').each((i, element) => {
-                  const el = \$(element);
-                  const href = el.attr('href');
-                  const src = el.attr('src');
-
-                  if (href) {
-                    const absoluteUrl = new url.URL(href, baseUrl).href;
-                    el.attr('href', absoluteUrl);
-                  }
-                  if (src) {
-                    const absoluteUrl = new url.URL(src, baseUrl).href;
-                    el.attr('src', absoluteUrl);
-                  }
-                });
-                
-                const finalHtml = \$.html();
-                fs.writeFileSync(savePath, finalHtml);
-                console.log(\`[+] Successfully saved page with corrected asset links to: \${savePath}\`);
-
-              } catch (error) {
-                console.error(\`[!] CRITICAL ERROR: \${error.message}\`);
-                process.exit(1);
-              }
-            })();
-          "
-      # Step 5: Take the folder with the downloaded website and upload it as an artifact
+      # Step 3: The downloaded files are saved in a folder named after the website's domain.
+      # This step uploads that folder as an artifact.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: website-files
-          path: ${{ steps.scrape_script.outputs.domain_name }}
+          name: website-mirror
+          # Get the domain name from the URL to use as the path
+          path: $(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)
 
