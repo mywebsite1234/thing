@@ -34,7 +34,12 @@ jobs:
       # Step 4: Run the website extractor script
       # The Node.js script is embedded directly here for simplicity.
       - name: Run Website Extractor Script
+        id: scrape_script
         run: |
+          # Set the domain name as an output for the next step
+          DOMAIN=$(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)
+          echo "domain_name=$DOMAIN" >> $GITHUB_OUTPUT
+
           node -e "
             const axios = require('axios');
             const cheerio = require('cheerio');
@@ -42,13 +47,12 @@ jobs:
             const path = require('path');
             const url = require('url');
 
-            // The URL is passed in from the manual trigger on GitHub
             const baseUrl = '${{ github.event.inputs.url }}';
             const parsedBaseUrl = new url.URL(baseUrl);
-            const domainName = parsedBaseUrl.hostname.replace('www.', '');
+            const domainName = '$DOMAIN'; // Use the domain name calculated above
 
-            console.log(`[*] Starting scrape for: \${baseUrl}`);
-            console.log(`[*] Files will be saved in the '\${domainName}' directory.`);
+            console.log(\`[*] Starting scrape for: \${baseUrl}\`);
+            console.log(\`[*] Files will be saved in the '\${domainName}' directory.\`);
 
             async function downloadAsset(assetUrl, savePath) {
               try {
@@ -64,7 +68,7 @@ jobs:
                   writer.on('error', reject);
                 });
               } catch (error) {
-                console.error(`  [!] Failed to download \${assetUrl}: \${error.message}`);
+                console.error(\`  [!] Failed to download \${assetUrl}: \${error.message}\`);
               }
             }
 
@@ -85,9 +89,9 @@ jobs:
                     downloadedUrls.add(absoluteUrl);
                     const assetPath = new url.URL(absoluteUrl).pathname;
                     let localPath = path.join(domainName, assetPath.startsWith('/') ? assetPath.substring(1) : assetPath);
-                    if (localPath.endsWith('/')) localPath = path.join(localPath, 'index.html');
+                    if (localPath.endsWith('/') || path.extname(localPath) === '') localPath = path.join(localPath, 'index.html');
                     
-                    console.log(`  [+] Queued: \${absoluteUrl}`);
+                    console.log(\`  [+] Queued: \${absoluteUrl}\`);
                     assetPromises.push(downloadAsset(absoluteUrl, localPath));
                   }
                 });
@@ -98,7 +102,7 @@ jobs:
                 await Promise.all(assetPromises);
                 console.log('\n[*] Asset download complete!');
               } catch (error) {
-                console.error(`[!] CRITICAL ERROR: \${error.message}`);
+                console.error(\`[!] CRITICAL ERROR: \${error.message}\`);
                 process.exit(1);
               }
             }
@@ -110,8 +114,5 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: website-files
-          # The path is the folder named after the website's domain
-          path: |
-            ${{ env.DOMAIN_NAME }}
-        env:
-          DOMAIN_NAME: ${{ fromJson('{"url": "${{ github.event.inputs.url }}"}').url.replace('https://', '').replace('http://', '').split('/')[0].replace('www.','') }}
+          path: ${{ steps.scrape_script.outputs.domain_name }}
+
