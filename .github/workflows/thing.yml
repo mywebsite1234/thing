@@ -84,15 +84,15 @@ jobs:
 
                 console.log('[*] Page loaded. Getting content...');
                 let html = await page.content();
-                const \$ = cheerio.load(html);
+                const \\$ = cheerio.load(html);
 
                 const assetPromises = [];
                 const assetUrls = new Set();
 
                 // Find all assets (CSS, JS, images, etc.)
-                $('link[href], script[src], img[src], source[src]').each((i, element) => {
-                  const assetAttr = \$(element).is('link') ? 'href' : 'src';
-                  let assetUrl = \$(element).attr(assetAttr);
+                \\$('link[href], script[src], img[src], source[src]').each((i, element) => {
+                  const assetAttr = \\$(element).is('link') ? 'href' : 'src';
+                  let assetUrl = \\$(element).attr(assetAttr);
                   if (!assetUrl) return;
 
                   // Create an absolute URL for the asset
@@ -112,17 +112,17 @@ jobs:
                       assetUrls.add(absoluteUrl);
                       assetPromises.push(downloadAsset(absoluteUrl, localPath));
                       // Rewrite the link in the HTML to point to the local file
-                      \$(element).attr(assetAttr, path.relative(saveDir, localPath));
+                      \\$(element).attr(assetAttr, path.relative(saveDir, localPath));
                     }
                   }
                 });
 
-                console.log(`[*] Found \${assetUrls.size} assets to download.`);
+                console.log(\`[*] Found \${assetUrls.size} assets to download.\`);
                 await Promise.all(assetPromises);
                 console.log('[*] Asset download complete!');
 
                 // Save the modified HTML file
-                fs.writeFileSync(path.join(saveDir, 'index.html'), \$.html());
+                fs.writeFileSync(path.join(saveDir, 'index.html'), \\$.html());
                 console.log('[*] Saved modified index.html.');
 
               } catch (error) {
