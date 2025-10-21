@@ -74,11 +74,13 @@ jobs:
             async function scrape() {
               try {
                 const response = await axios.get(baseUrl);
+                // FIX: Escaped the '$' to prevent shell command substitution.
                 const \$ = cheerio.load(response.data);
                 const assetPromises = [];
                 const downloadedUrls = new Set();
 
-                $('link[href], script[src], img[src], source[src]').each((i, element) => {
+                // FIX: Escaped the '$' to prevent shell command substitution.
+                \$('link[href], script[src], img[src], source[src]').each((i, element) => {
                   const assetAttr = \$(element).is('link') ? 'href' : 'src';
                   const assetUrl = \$(element).attr(assetAttr);
                   if (!assetUrl) return;
@@ -88,7 +90,7 @@ jobs:
                     downloadedUrls.add(absoluteUrl);
                     const assetPath = new url.URL(absoluteUrl).pathname;
                     let localPath = path.join(domainName, assetPath.startsWith('/') ? assetPath.substring(1) : assetPath);
-                    // THIS IS THE FIX: Check if path ends with slash OR has no extension
+                    
                     if (localPath.endsWith('/') || path.extname(localPath) === '') {
                        localPath = path.join(localPath, 'index.html');
                     }
@@ -117,4 +119,3 @@ jobs:
         with:
           name: website-files
           path: ${{ steps.scrape_script.outputs.domain_name }}
-
