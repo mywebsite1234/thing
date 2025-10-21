@@ -47,10 +47,13 @@ jobs:
             const url = require('url');
 
             const baseUrl = '${{ github.event.inputs.url }}';
-            // FIX: Added a Referer header to mimic a real browser request.
+            // FIX: Added more headers to better mimic a real browser.
             const BROWSER_HEADERS = { 
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-              'Referer': baseUrl
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+              'Accept-Encoding': 'gzip, deflate, br',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Referer': baseUrl,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             };
             const parsedBaseUrl = new url.URL(baseUrl);
             const domainName = '$DOMAIN'; // Use the domain name calculated above
