@@ -1,18 +1,18 @@
 # This is a GitHub Actions workflow file.
-# It defines an automated process that runs on GitHub's servers.
+# It uses Puppeteer to handle modern, JavaScript-heavy websites.
 
-name: Website Mirror
+name: Advanced Website Scraper for bryan
 
 # This allows you to run the workflow manually from the Actions tab
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'The full URL of the website to mirror'
+        description: 'The full URL of the website to scrape'
         required: true
 
 jobs:
-  mirror-and-package:
+  scrape-and-package:
     # The job will run on a standard Ubuntu virtual machine provided by GitHub
     runs-on: ubuntu-latest
 
@@ -21,36 +21,127 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Calculate the domain name to use in subsequent steps
-      - name: Get Domain Name
-        id: get_domain
-        run: echo "DOMAIN_NAME=$(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)" >> $GITHUB_OUTPUT
+      # Step 2: Set up Node.js on the virtual machine
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-      # Step 3: Run wget to mirror the entire website
-      - name: Mirror Website with Wget
+      # Step 3: Install the necessary libraries (Puppeteer for browser automation, Axios for downloading)
+      - name: Install dependencies
+        run: npm install puppeteer axios cheerio
+
+      # Step 4: Run the advanced website extractor script
+      - name: Run Website Extractor Script
+        id: scrape_script
         run: |
-          # Use wget to create a full offline mirror of the site.
-          # --mirror: Enables options suitable for mirroring.
-          # --convert-links: Converts links to work for local viewing.
-          # --adjust-extension: Adds .html to filenames where needed.
-          # --page-requisites: Downloads all assets like CSS, JS, and images.
-          # --no-parent: Prevents wget from going to parent directories.
-          # --execute robots=off: Ignores the website's robots.txt file.
-          wget \
-            --mirror \
-            --convert-links \
-            --adjust-extension \
-            --page-requisites \
-            --no-parent \
-            --execute robots=off \
-            "${{ github.event.inputs.url }}"
+          # Set the domain name as an output for the next step
+          DOMAIN=$(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)
+          echo "domain_name=$DOMAIN" >> $GITHUB_OUTPUT
 
-      # Step 4: The downloaded files are saved in a folder named after the website's domain.
-      # This step uploads that folder as an artifact.
+          node -e "
+            const puppeteer = require('puppeteer');
+            const axios = require('axios');
+            const cheerio = require('cheerio');
+            const fs = require('fs');
+            const path = require('path');
+            const url = require('url');
+
+            const baseUrl = '${{ github.event.inputs.url }}';
+            const domainName = '$DOMAIN';
+            const saveDir = domainName;
+
+            // Create the main directory for the scraped site
+            if (!fs.existsSync(saveDir)) {
+              fs.mkdirSync(saveDir, { recursive: true });
+            }
+
+            async function downloadAsset(assetUrl, savePath) {
+              try {
+                // Ensure the directory for the asset exists
+                const dir = path.dirname(savePath);
+                if (!fs.existsSync(dir)) {
+                  fs.mkdirSync(dir, { recursive: true });
+                }
+
+                console.log(\`  [+] Downloading: \${assetUrl}\`);
+                const response = await axios({ method: 'GET', url: assetUrl, responseType: 'arraybuffer' });
+                fs.writeFileSync(savePath, response.data);
+              } catch (error) {
+                console.error(\`  [!] Failed to download \${assetUrl}: \${error.message}\`);
+              }
+            }
+
+            async function scrape() {
+              let browser;
+              try {
+                console.log('[*] Launching headless browser...');
+                browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+                const page = await browser.newPage();
+                
+                console.log(\`[*] Navigating to: \${baseUrl}\`);
+                await page.goto(baseUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+
+                console.log('[*] Page loaded. Getting content...');
+                let html = await page.content();
+                const \$ = cheerio.load(html);
+
+                const assetPromises = [];
+                const assetUrls = new Set();
+
+                // Find all assets (CSS, JS, images, etc.)
+                $('link[href], script[src], img[src], source[src]').each((i, element) => {
+                  const assetAttr = \$(element).is('link') ? 'href' : 'src';
+                  let assetUrl = \$(element).attr(assetAttr);
+                  if (!assetUrl) return;
+
+                  // Create an absolute URL for the asset
+                  const absoluteUrl = new url.URL(assetUrl, baseUrl).href;
+                  
+                  // Only download assets from the same domain
+                  if (new url.URL(absoluteUrl).hostname.endsWith(new url.URL(baseUrl).hostname)) {
+                    const urlObject = new url.URL(absoluteUrl);
+                    let localPath = path.join(saveDir, urlObject.pathname.substring(1));
+
+                    // Handle root paths (e.g., /) by naming them index.html
+                    if (localPath.endsWith('/')) {
+                        localPath = path.join(localPath, 'index.html');
+                    }
+                    
+                    if (!assetUrls.has(absoluteUrl)) {
+                      assetUrls.add(absoluteUrl);
+                      assetPromises.push(downloadAsset(absoluteUrl, localPath));
+                      // Rewrite the link in the HTML to point to the local file
+                      \$(element).attr(assetAttr, path.relative(saveDir, localPath));
+                    }
+                  }
+                });
+
+                console.log(`[*] Found \${assetUrls.size} assets to download.`);
+                await Promise.all(assetPromises);
+                console.log('[*] Asset download complete!');
+
+                // Save the modified HTML file
+                fs.writeFileSync(path.join(saveDir, 'index.html'), \$.html());
+                console.log('[*] Saved modified index.html.');
+
+              } catch (error) {
+                console.error(\`[!] CRITICAL ERROR: \${error.message}\`);
+                process.exit(1);
+              } finally {
+                if (browser) {
+                  await browser.close();
+                  console.log('[*] Browser closed.');
+                }
+              }
+            }
+
+            scrape();
+          "
+      # Step 5: Upload the complete folder as an artifact
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: website-mirror
-          # Get the domain name from the URL to use as the path
-          path: ${{ steps.get_domain.outputs.DOMAIN_NAME }}
+          name: website-files
+          path: ${{ steps.scrape_script.outputs.domain_name }}
 
