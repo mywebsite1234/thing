@@ -39,16 +39,19 @@ jobs:
           DOMAIN=$(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)
           echo "domain_name=$DOMAIN" >> $GITHUB_OUTPUT
 
-          node -e "
-            const puppeteer = require('puppeteer');
-            const axios = require('axios');
-            const cheerio = require('cheerio');
-            const fs = require('fs');
-            const path = require('path');
-            const url = require('url');
+          # Execute the Node.js script.
+          # We use single quotes to prevent the shell from interpreting '$' characters used by Cheerio.
+          # Shell variables are injected by temporarily breaking out of the single-quoted string.
+          node -e '
+            const puppeteer = require("puppeteer");
+            const axios = require("axios");
+            const cheerio = require("cheerio");
+            const fs = require("fs");
+            const path = require("path");
+            const url = require("url");
 
-            const baseUrl = '${{ github.event.inputs.url }}';
-            const domainName = '$DOMAIN';
+            const baseUrl = "'"${{ github.event.inputs.url }}"'";
+            const domainName = "'"$DOMAIN"'";
             const saveDir = domainName;
 
             // Create the main directory for the scraped site
@@ -64,35 +67,35 @@ jobs:
                   fs.mkdirSync(dir, { recursive: true });
                 }
 
-                console.log(\`  [+] Downloading: \${assetUrl}\`);
-                const response = await axios({ method: 'GET', url: assetUrl, responseType: 'arraybuffer' });
+                console.log(`  [+] Downloading: ${assetUrl}`);
+                const response = await axios({ method: "GET", url: assetUrl, responseType: "arraybuffer" });
                 fs.writeFileSync(savePath, response.data);
               } catch (error) {
-                console.error(\`  [!] Failed to download \${assetUrl}: \${error.message}\`);
+                console.error(`  [!] Failed to download ${assetUrl}: ${error.message}`);
               }
             }
 
             async function scrape() {
               let browser;
               try {
-                console.log('[*] Launching headless browser...');
-                browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+                console.log("[*] Launching headless browser...");
+                browser = await puppeteer.launch({ args: ["--no-sandbox", "--disable-setuid-sandbox"] });
                 const page = await browser.newPage();
                 
-                console.log(\`[*] Navigating to: \${baseUrl}\`);
-                await page.goto(baseUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+                console.log(`[*] Navigating to: ${baseUrl}`);
+                await page.goto(baseUrl, { waitUntil: "networkidle0", timeout: 60000 });
 
-                console.log('[*] Page loaded. Getting content...');
+                console.log("[*] Page loaded. Getting content...");
                 let html = await page.content();
-                const \\$ = cheerio.load(html);
+                const $ = cheerio.load(html);
 
                 const assetPromises = [];
                 const assetUrls = new Set();
 
                 // Find all assets (CSS, JS, images, etc.)
-                \\$('link[href], script[src], img[src], source[src]').each((i, element) => {
-                  const assetAttr = \\$(element).is('link') ? 'href' : 'src';
-                  let assetUrl = \\$(element).attr(assetAttr);
+                $("link[href], script[src], img[src], source[src]").each((i, element) => {
+                  const assetAttr = $(element).is("link") ? "href" : "src";
+                  let assetUrl = $(element).attr(assetAttr);
                   if (!assetUrl) return;
 
                   // Create an absolute URL for the asset
@@ -104,40 +107,40 @@ jobs:
                     let localPath = path.join(saveDir, urlObject.pathname.substring(1));
 
                     // Handle root paths (e.g., /) by naming them index.html
-                    if (localPath.endsWith('/')) {
-                        localPath = path.join(localPath, 'index.html');
+                    if (localPath.endsWith("/")) {
+                        localPath = path.join(localPath, "index.html");
                     }
                     
                     if (!assetUrls.has(absoluteUrl)) {
                       assetUrls.add(absoluteUrl);
                       assetPromises.push(downloadAsset(absoluteUrl, localPath));
                       // Rewrite the link in the HTML to point to the local file
-                      \\$(element).attr(assetAttr, path.relative(saveDir, localPath));
+                      $(element).attr(assetAttr, path.relative(saveDir, localPath));
                     }
                   }
                 });
 
-                console.log(\`[*] Found \${assetUrls.size} assets to download.\`);
+                console.log(`[*] Found ${assetUrls.size} assets to download.`);
                 await Promise.all(assetPromises);
-                console.log('[*] Asset download complete!');
+                console.log("[*] Asset download complete!");
 
                 // Save the modified HTML file
-                fs.writeFileSync(path.join(saveDir, 'index.html'), \\$.html());
-                console.log('[*] Saved modified index.html.');
+                fs.writeFileSync(path.join(saveDir, "index.html"), $.html());
+                console.log("[*] Saved modified index.html.");
 
               } catch (error) {
-                console.error(\`[!] CRITICAL ERROR: \${error.message}\`);
+                console.error(`[!] CRITICAL ERROR: ${error.message}`);
                 process.exit(1);
               } finally {
                 if (browser) {
                   await browser.close();
-                  console.log('[*] Browser closed.');
+                  console.log("[*] Browser closed.");
                 }
               }
             }
 
             scrape();
-          "
+          '
       # Step 5: Upload the complete folder as an artifact
       - name: Upload artifact
         uses: actions/upload-artifact@v4
