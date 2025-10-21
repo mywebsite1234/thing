@@ -27,11 +27,11 @@ jobs:
         with:
           node-version: '20'
 
-      # Step 3: Install the necessary libraries (axios for downloading, cheerio for parsing)
+      # Step 3: Install Puppeteer, a tool for controlling a real browser
       - name: Install dependencies
-        run: npm install axios cheerio
+        run: npm install puppeteer
 
-      # Step 4: Run the website extractor script
+      # Step 4: Run the website extractor script using Puppeteer
       - name: Run Website Extractor Script
         id: scrape_script
         run: |
@@ -39,85 +39,45 @@ jobs:
           DOMAIN=$(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)
           echo "domain_name=$DOMAIN" >> $GITHUB_OUTPUT
 
+          # Create the directory for the output
+          mkdir -p $DOMAIN
+
           node -e "
-            const axios = require('axios');
-            const cheerio = require('cheerio');
+            const puppeteer = require('puppeteer');
             const fs = require('fs');
             const path = require('path');
-            const url = require('url');
 
             const baseUrl = '${{ github.event.inputs.url }}';
-            // FIX: Added more headers to better mimic a real browser.
-            const BROWSER_HEADERS = { 
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-              'Accept-Encoding': 'gzip, deflate, br',
-              'Accept-Language': 'en-US,en;q=0.9',
-              'Referer': baseUrl,
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            };
-            const parsedBaseUrl = new url.URL(baseUrl);
-            const domainName = '$DOMAIN'; // Use the domain name calculated above
+            const domainName = '$DOMAIN';
+            const savePath = path.join(domainName, 'index.html');
 
             console.log(\`[*] Starting scrape for: \${baseUrl}\`);
-            console.log(\`[*] Files will be saved in the '\${domainName}' directory.\`);
 
-            async function downloadAsset(assetUrl, savePath) {
+            (async () => {
               try {
-                const dir = path.dirname(savePath);
-                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-                const response = await axios({ method: 'GET', url: assetUrl, responseType: 'stream', headers: BROWSER_HEADERS });
-                const writer = fs.createWriteStream(savePath);
-                response.data.pipe(writer);
-
-                return new Promise((resolve, reject) => {
-                  writer.on('finish', resolve);
-                  writer.on('error', reject);
-                });
-              } catch (error) {
-                console.error(\`  [!] Failed to download \${assetUrl}: \${error.message}\`);
-              }
-            }
-
-            async function scrape() {
-              try {
-                const response = await axios.get(baseUrl, { headers: BROWSER_HEADERS });
-                const \$ = cheerio.load(response.data);
-                const assetPromises = [];
-                const downloadedUrls = new Set();
-
-                \$('link[href], script[src], img[src], source[src]').each((i, element) => {
-                  const assetAttr = \$(element).is('link') ? 'href' : 'src';
-                  const assetUrl = \$(element).attr(assetAttr);
-                  if (!assetUrl) return;
-
-                  const absoluteUrl = new url.URL(assetUrl, baseUrl).href;
-                  if (new url.URL(absoluteUrl).hostname === parsedBaseUrl.hostname && !downloadedUrls.has(absoluteUrl)) {
-                    downloadedUrls.add(absoluteUrl);
-                    const assetPath = new url.URL(absoluteUrl).pathname;
-                    let localPath = path.join(domainName, assetPath.startsWith('/') ? assetPath.substring(1) : assetPath);
-                    
-                    if (localPath.endsWith('/') || path.extname(localPath) === '') {
-                       localPath = path.join(localPath, 'index.html');
-                    }
-                    
-                    console.log(\`  [+] Queued: \${absoluteUrl}\`);
-                    assetPromises.push(downloadAsset(absoluteUrl, localPath));
-                  }
-                });
-
-                fs.writeFileSync(path.join(domainName, 'index.html'), response.data);
-                console.log('[*] Saved main index.html page.');
+                console.log('[*] Launching headless browser...');
+                // Puppeteer needs --no-sandbox flag to run in GitHub Actions environment
+                const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+                const page = await browser.newPage();
                 
-                await Promise.all(assetPromises);
-                console.log('\n[*] Asset download complete!');
+                console.log(\`[*] Navigating to \${baseUrl}...\`);
+                // Increased timeout for complex pages
+                await page.goto(baseUrl, { waitUntil: 'networkidle2', timeout: 90000 });
+                
+                console.log('[*] Page loaded. Getting content...');
+                const content = await page.content();
+                
+                fs.writeFileSync(savePath, content);
+                console.log(\`[+] Successfully saved page to: \${savePath}\`);
+
+                await browser.close();
+                console.log('[*] Browser closed. Scrape complete!');
+
               } catch (error) {
                 console.error(\`[!] CRITICAL ERROR: \${error.message}\`);
                 process.exit(1);
               }
-            }
-
-            scrape();
+            })();
           "
       # Step 5: Take the folder with the downloaded website and upload it as an artifact
       - name: Upload artifact
