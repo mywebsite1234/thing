@@ -19,20 +19,19 @@ jobs:
     steps:
       # Step 1: A standard checkout step (required for workflows)
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # Step 2: Set up Node.js on the virtual machine
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
 
       # Step 3: Install the necessary libraries (axios for downloading, cheerio for parsing)
       - name: Install dependencies
         run: npm install axios cheerio
 
       # Step 4: Run the website extractor script
-      # The Node.js script is embedded directly here for simplicity.
       - name: Run Website Extractor Script
         id: scrape_script
         run: |
@@ -111,7 +110,7 @@ jobs:
           "
       # Step 5: Take the folder with the downloaded website and upload it as an artifact
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4 # <-- THIS IS THE FIX
         with:
           name: website-files
           path: ${{ steps.scrape_script.outputs.domain_name }}
