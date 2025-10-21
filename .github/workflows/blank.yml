@@ -46,6 +46,7 @@ jobs:
             const path = require('path');
             const url = require('url');
 
+            const BROWSER_HEADERS = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' };
             const baseUrl = '${{ github.event.inputs.url }}';
             const parsedBaseUrl = new url.URL(baseUrl);
             const domainName = '$DOMAIN'; // Use the domain name calculated above
@@ -58,7 +59,7 @@ jobs:
                 const dir = path.dirname(savePath);
                 if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-                const response = await axios({ method: 'GET', url: assetUrl, responseType: 'stream' });
+                const response = await axios({ method: 'GET', url: assetUrl, responseType: 'stream', headers: BROWSER_HEADERS });
                 const writer = fs.createWriteStream(savePath);
                 response.data.pipe(writer);
 
@@ -73,7 +74,7 @@ jobs:
 
             async function scrape() {
               try {
-                const response = await axios.get(baseUrl);
+                const response = await axios.get(baseUrl, { headers: BROWSER_HEADERS });
                 // FIX: Escaped the '$' to prevent shell command substitution.
                 const \$ = cheerio.load(response.data);
                 const assetPromises = [];
@@ -119,3 +120,4 @@ jobs:
         with:
           name: website-files
           path: ${{ steps.scrape_script.outputs.domain_name }}
+
