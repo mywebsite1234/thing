@@ -25,6 +25,8 @@ jobs:
       - name: Mirror Website with Wget
         run: |
           # Use wget to create a full offline mirror of the site.
+          # --user-agent: Pretends to be a regular browser to avoid being blocked.
+          # --wait/--random-wait: Pauses between downloads to avoid triggering anti-bot measures.
           # --mirror: Enables options suitable for mirroring.
           # --convert-links: Converts links to work for local viewing.
           # --adjust-extension: Adds .html to filenames where needed.
@@ -32,6 +34,9 @@ jobs:
           # --no-parent: Prevents wget from going to parent directories.
           # --execute robots=off: Ignores the website's robots.txt file.
           wget \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" \
+            --wait=2 \
+            --random-wait \
             --mirror \
             --convert-links \
             --adjust-extension \
