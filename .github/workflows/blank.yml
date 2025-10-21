@@ -27,11 +27,11 @@ jobs:
         with:
           node-version: '20'
 
-      # Step 3: Install Puppeteer, a tool for controlling a real browser
+      # Step 3: Install Puppeteer (to browse) and Cheerio (to edit HTML)
       - name: Install dependencies
-        run: npm install puppeteer
+        run: npm install puppeteer cheerio
 
-      # Step 4: Run the website extractor script using Puppeteer
+      # Step 4: Run the website extractor script
       - name: Run Website Extractor Script
         id: scrape_script
         run: |
@@ -44,8 +44,10 @@ jobs:
 
           node -e "
             const puppeteer = require('puppeteer');
+            const cheerio = require('cheerio');
             const fs = require('fs');
             const path = require('path');
+            const url = require('url');
 
             const baseUrl = '${{ github.event.inputs.url }}';
             const domainName = '$DOMAIN';
@@ -56,22 +58,39 @@ jobs:
             (async () => {
               try {
                 console.log('[*] Launching headless browser...');
-                // Puppeteer needs --no-sandbox flag to run in GitHub Actions environment
                 const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
                 const page = await browser.newPage();
                 
                 console.log(\`[*] Navigating to \${baseUrl}...\`);
-                // Increased timeout for complex pages
                 await page.goto(baseUrl, { waitUntil: 'networkidle2', timeout: 90000 });
                 
                 console.log('[*] Page loaded. Getting content...');
-                const content = await page.content();
-                
-                fs.writeFileSync(savePath, content);
-                console.log(\`[+] Successfully saved page to: \${savePath}\`);
-
+                const htmlContent = await page.content();
                 await browser.close();
-                console.log('[*] Browser closed. Scrape complete!');
+                console.log('[*] Browser closed.');
+
+                console.log('[*] Processing HTML to fix asset paths...');
+                const \$ = cheerio.load(htmlContent);
+
+                // Find all tags with src or href attributes and convert paths to absolute
+                \$('link, script, img, a, source').each((i, element) => {
+                  const el = \$(element);
+                  const href = el.attr('href');
+                  const src = el.attr('src');
+
+                  if (href) {
+                    const absoluteUrl = new url.URL(href, baseUrl).href;
+                    el.attr('href', absoluteUrl);
+                  }
+                  if (src) {
+                    const absoluteUrl = new url.URL(src, baseUrl).href;
+                    el.attr('src', absoluteUrl);
+                  }
+                });
+                
+                const finalHtml = \$.html();
+                fs.writeFileSync(savePath, finalHtml);
+                console.log(\`[+] Successfully saved page with corrected asset links to: \${savePath}\`);
 
               } catch (error) {
                 console.error(\`[!] CRITICAL ERROR: \${error.message}\`);
