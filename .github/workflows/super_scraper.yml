@@ -68,6 +68,7 @@ jobs:
             // Creates a local file path from a URL
             function getLocalPath(pageUrl) {
               const urlObj = new url.URL(pageUrl);
+              // Use pathname to ignore query strings when creating file paths
               let localPath = path.join(saveDir, urlObj.pathname);
 
               // If path is a directory, append index.html
@@ -108,18 +109,19 @@ jobs:
               browser = await puppeteer.launch({ args: ["--no-sandbox", "--disable-setuid-sandbox"] });
 
               while (queue.length > 0) {
-                const currentUrl = queue.shift();
+                const currentUrl = queue.shift(); // This is a BASE URL (no query)
 
                 if (visited.has(currentUrl)) {
                   continue;
                 }
-                visited.add(currentUrl);
+                visited.add(currentUrl); // Add the BASE URL to visited set
 
                 console.log(`\n[*] Crawling: ${currentUrl}`);
                 const page = await browser.newPage();
                 let html;
 
                 try {
+                  // Go to the base URL to find its assets
                   await page.goto(currentUrl, { waitUntil: "networkidle0", timeout: 60000 });
                   html = await page.content();
                 } catch (e) {
@@ -130,6 +132,7 @@ jobs:
 
                 const $ = cheerio.load(html);
                 const assetPromises = [];
+                // Get local path for saving the file
                 const localPagePath = getLocalPath(currentUrl);
 
                 // --- 1. Find and download all assets (CSS, JS, images) ---
@@ -166,17 +169,28 @@ jobs:
                   if (!linkUrl) return;
 
                   const absoluteUrl = new url.URL(linkUrl, currentUrl).href.split("#")[0]; // Remove hash
+                  const urlObj = new url.URL(absoluteUrl);
 
                   // Only crawl pages on the same domain
-                  if (absoluteUrl.startsWith("http") && new url.URL(absoluteUrl).hostname.endsWith(baseHostname)) {
-                    if (!visited.has(absoluteUrl) && !queue.includes(absoluteUrl)) {
-                      console.log(`  [->] Found new page to crawl: ${absoluteUrl}`);
-                      queue.push(absoluteUrl);
+                  if (absoluteUrl.startsWith("http") && urlObj.hostname.endsWith(baseHostname)) {
+                    
+                    // --- Crawling Logic ---
+                    // Get the base URL (without query string) for the queue
+                    const crawlUrl = urlObj.origin + urlObj.pathname;
+                    if (!visited.has(crawlUrl) && !queue.includes(crawlUrl)) {
+                      console.log(`  [->] Found new page to crawl: ${crawlUrl}`);
+                      queue.push(crawlUrl); // Only add the base URL to the queue
                     }
                     
-                    // Rewrite the <a> link to point to the local HTML file
-                    const relativeLinkPath = path.relative(path.dirname(localPagePath), getLocalPath(absoluteUrl));
-                    $(element).attr("href", relativeLinkPath);
+                    // --- Rewrite Logic ---
+                    // Get the local path *without* query string
+                    const localHtmlPath = getLocalPath(absoluteUrl); 
+                    // Get the relative path from current HTML to target HTML
+                    const relativeLinkPath = path.relative(path.dirname(localPagePath), localHtmlPath);
+                    // Re-add the query string (e.g., "?target=1")
+                    const finalLink = relativeLinkPath + urlObj.search; 
+
+                    $(element).attr("href", finalLink);
                   }
                 });
 
@@ -218,3 +232,4 @@ jobs:
         with:
           name: website-mirror
           path: ${{ steps.scrape_script.outputs.domain_name }}
+
