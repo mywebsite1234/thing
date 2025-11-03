@@ -1,5 +1,5 @@
 # This is a GitHub Actions workflow file.
-# It defines an automated process that runs on GitHub's servers.
+# It uses wget to mirror a live website.
 
 name: Website Mirror
 
@@ -43,7 +43,7 @@ jobs:
             --page-requisites \
             --no-parent \
             --execute robots=off \
-            "${{ github.event.inputs.url }}"
+            "${{ github.event.inputs.url }}" || true
 
       # Step 3: The downloaded files are saved in a folder named after the website's domain.
       # This step uploads that folder as an artifact.
