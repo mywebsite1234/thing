@@ -1,0 +1,220 @@
+# This is a GitHub Actions workflow file.
+# It defines an automated process that runs on GitHub's servers.
+# This script acts as a full JavaScript-aware web crawler.
+# 1. It uses Puppeteer to render JavaScript on a page.
+# 2. It finds all assets (CSS, JS, images) and downloads them.
+# 3. It finds all links (<a> tags) on the same domain and adds them to a queue.
+# 4. It repeats this process for every page it finds.
+# 5. It rewrites all links to work locally for a full offline mirror.
+
+name: Advanced JS Crawler
+
+# This allows you to run the workflow manually from the Actions tab
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'The full URL of the website to scrape'
+        required: true
+
+jobs:
+  scrape-and-package:
+    # The job will run on a standard Ubuntu virtual machine provided by GitHub
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: A standard checkout step (required for workflows)
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Node.js on the virtual machine
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Step 3: Install the necessary libraries (Puppeteer for browser automation, Axios for downloading)
+      - name: Install dependencies
+        run: npm install puppeteer axios cheerio
+
+      # Step 4: Run the advanced website crawler script
+      - name: Run Website Crawler Script
+        id: scrape_script
+        run: |
+          # Set the domain name as an output for the next step
+          DOMAIN=$(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)
+          echo "domain_name=$DOMAIN" >> $GITHUB_OUTPUT
+
+          # Execute the Node.js script.
+          node -e '
+            const puppeteer = require("puppeteer");
+            const axios = require("axios");
+            const cheerio = require("cheerio");
+            const fs = require("fs");
+            const path = require("path");
+            const url = require("url");
+
+            // --- Configuration ---
+            const baseUrl = "'"${{ github.event.inputs.url }}"'";
+            const baseHostname = new url.URL(baseUrl).hostname;
+            const saveDir = "'"$DOMAIN"'";
+
+            const queue = [baseUrl];
+            const visited = new Set();
+            let browser;
+
+            // --- Utility Functions ---
+
+            // Creates a local file path from a URL
+            function getLocalPath(pageUrl) {
+              const urlObj = new url.URL(pageUrl);
+              let localPath = path.join(saveDir, urlObj.pathname);
+
+              // If path is a directory, append index.html
+              if (localPath.endsWith("/")) {
+                localPath = path.join(localPath, "index.html");
+              }
+              // If path has no extension, append .html
+              else if (path.extname(localPath) === "") {
+                 localPath += ".html";
+              }
+              return localPath;
+            }
+
+            // Downloads a single asset (CSS, JS, image)
+            async function downloadAsset(assetUrl, savePath) {
+              try {
+                const dir = path.dirname(savePath);
+                if (!fs.existsSync(dir)) {
+                  fs.mkdirSync(dir, { recursive: true });
+                }
+                
+                if (fs.existsSync(savePath)) {
+                  // console.log(`  [~] Skipping asset (already downloaded): ${assetUrl}`);
+                  return;
+                }
+
+                console.log(`  [+] Downloading asset: ${assetUrl}`);
+                const response = await axios({ method: "GET", url: assetUrl, responseType: "arraybuffer" });
+                fs.writeFileSync(savePath, response.data);
+              } catch (error) {
+                console.error(`  [!] Failed to download ${assetUrl}: ${error.message}`);
+              }
+            }
+
+            // --- Main Crawler Function ---
+            async function crawl() {
+              console.log("[*] Launching headless browser...");
+              browser = await puppeteer.launch({ args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+
+              while (queue.length > 0) {
+                const currentUrl = queue.shift();
+
+                if (visited.has(currentUrl)) {
+                  continue;
+                }
+                visited.add(currentUrl);
+
+                console.log(`\n[*] Crawling: ${currentUrl}`);
+                const page = await browser.newPage();
+                let html;
+
+                try {
+                  await page.goto(currentUrl, { waitUntil: "networkidle0", timeout: 60000 });
+                  html = await page.content();
+                } catch (e) {
+                  console.error(`  [!] Failed to load page ${currentUrl}: ${e.message}`);
+                  await page.close();
+                  continue;
+                }
+
+                const $ = cheerio.load(html);
+                const assetPromises = [];
+                const localPagePath = getLocalPath(currentUrl);
+
+                // --- 1. Find and download all assets (CSS, JS, images) ---
+                $("link[href], script[src], img[src], source[src]").each((i, element) => {
+                  const assetAttr = $(element).is("link") ? "href" : "src";
+                  let assetUrl = $(element).attr(assetAttr);
+                  if (!assetUrl) return;
+
+                  const absoluteUrl = new url.URL(assetUrl, currentUrl).href;
+                  
+                  // Only download assets from the same domain
+                  if (new url.URL(absoluteUrl).hostname.endsWith(baseHostname)) {
+                    const urlObject = new url.URL(absoluteUrl);
+                    // Use pathname.substring(1) to avoid leading slash, making path relative to saveDir
+                    let localAssetPath = path.join(saveDir, urlObject.pathname.substring(1));
+
+                    if(localAssetPath.endsWith("/")) {
+                      // Should not happen for an asset, but good to check
+                      localAssetPath = path.join(localAssetPath, "index.html");
+                    }
+
+                    assetPromises.push(downloadAsset(absoluteUrl, localAssetPath));
+                    
+                    // Rewrite the link in the HTML to point to the local file
+                    // We need to calculate the relative path from the *HTML file* to the *asset file*
+                    const relativeAssetPath = path.relative(path.dirname(localPagePath), localAssetPath);
+                    $(element).attr(assetAttr, relativeAssetPath);
+                  }
+                });
+
+                // --- 2. Find all links (<a> tags) to crawl ---
+                $("a[href]").each((i, element) => {
+                  let linkUrl = $(element).attr("href");
+                  if (!linkUrl) return;
+
+                  const absoluteUrl = new url.URL(linkUrl, currentUrl).href.split("#")[0]; // Remove hash
+
+                  // Only crawl pages on the same domain
+                  if (absoluteUrl.startsWith("http") && new url.URL(absoluteUrl).hostname.endsWith(baseHostname)) {
+                    if (!visited.has(absoluteUrl) && !queue.includes(absoluteUrl)) {
+                      console.log(`  [->] Found new page to crawl: ${absoluteUrl}`);
+                      queue.push(absoluteUrl);
+                    }
+                    
+                    // Rewrite the <a> link to point to the local HTML file
+                    const relativeLinkPath = path.relative(path.dirname(localPagePath), getLocalPath(absoluteUrl));
+                    $(element).attr("href", relativeLinkPath);
+                  }
+                });
+
+                console.log(`  [*] Found ${assetPromises.length} assets on this page.`);
+                await Promise.all(assetPromises);
+                console.log(`  [*] Asset download complete for: ${currentUrl}`);
+
+                // --- 3. Save the modified HTML file ---
+                const dir = path.dirname(localPagePath);
+                if (!fs.existsSync(dir)) {
+                  fs.mkdirSync(dir, { recursive: true });
+                }
+                fs.writeFileSync(localPagePath, $.html());
+                console.log(`  [*] Saved modified HTML to: ${localPagePath}`);
+
+                await page.close();
+              } // end while loop
+            }
+
+            // --- Start the Crawl ---
+            (async () => {
+              try {
+                await crawl();
+                console.log("\n[*] Crawl complete!");
+              } catch (error) {
+                console.error(`[!] CRITICAL ERROR: ${error.message}`);
+                process.exit(1);
+              } finally {
+                if (browser) {
+                  await browser.close();
+                  console.log("[*] Browser closed.");
+                }
+              }
+            })();
+          '
+      # Step 5: Upload the complete folder as an artifact
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-mirror
+          path: ${{ steps.scrape_script.outputs.domain_name }}
