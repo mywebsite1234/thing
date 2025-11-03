@@ -35,7 +35,7 @@ jobs:
           # --execute robots=off: Ignores the website's robots.txt file.
           wget \
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" \
-            --wait=10 \
+            --wait=2 \
             --random-wait \
             --mirror \
             --convert-links \
@@ -44,13 +44,22 @@ jobs:
             --no-parent \
             --execute robots=off \
             "${{ github.event.inputs.url }}" || true
+      
+      # Step 3: Get the directory name that wget created
+      - name: Set directory path
+        id: get_path
+        run: |
+          # This command extracts the hostname (e.g., "geography-subject.github.io")
+          # from the full URL, which is the directory wget saves to.
+          DOMAIN_PATH=$(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)
+          echo "path=$DOMAIN_PATH" >> $GITHUB_OUTPUT
 
-      # Step 3: The downloaded files are saved in a folder named after the website's domain.
+      # Step 4: The downloaded files are saved in a folder named after the website's domain.
       # This step uploads that folder as an artifact.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: website-mirror
-          # Get the domain name from the URL to use as the path
-          path: $(echo "${{ github.event.inputs.url }}" | sed -e 's|https://||' -e 's|http://||' -e 's|www.||' | cut -d/ -f1)
+          # Use the output from the previous step
+          path: ${{ steps.get_path.outputs.path }}
 
