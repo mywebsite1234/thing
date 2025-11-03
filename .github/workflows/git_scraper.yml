@@ -1,23 +1,61 @@
+# This workflow clones a GitHub Pages site by its URL.
+# It converts the URL (e.g., https://username.github.io)
+# into the repository name (e.g., username/username.github.io)
+# and then clones it. This avoids server errors from wget.
+
 name: Clone GitHub Pages Site
 
+# This allows you to run the workflow manually from the Actions tab
 on:
   workflow_dispatch:
+    inputs:
+      url:
+        description: 'The full URL of the GitHub Pages site (e.g., https://username.github.io)'
+        required: true
+        default: 'https://quiz-30.github.io'
 
 jobs:
-  clone-site:
+  clone-and-package:
+    # The job will run on a standard Ubuntu virtual machine provided by GitHub
     runs-on: ubuntu-latest
+
     steps:
-      # Step 1: Clone the target repository
+      # Step 1: Parse the URL to find the repository name
+      - name: Parse URL to find repository
+        id: parse
+        run: |
+          # Get the full URL from the input
+          INPUT_URL="${{ github.event.inputs.url }}"
+          
+          # 1. Remove "https://" from the beginning
+          USERNAME_PART=$(echo "$INPUT_URL" | sed -e 's|https://||')
+          
+          # 2. Remove ".github.io" (and any trailing slash) to get just the username
+          USERNAME=$(echo "$USERNAME_PART" | sed -e 's|\.github\.io.*||')
+          
+          # 3. Construct the repository name: username/username.github.io
+          REPO_FULL_NAME="$USERNAME/$USERNAME.github.io"
+          
+          # 4. Construct the directory name for the checkout path: username.github.io
+          REPO_DIR_NAME="$USERNAME.github.io"
+
+          # 5. Set the outputs for other steps to use
+          echo "full_name=$REPO_FULL_NAME" >> $GITHUB_OUTPUT
+          echo "dir_name=$REPO_DIR_NAME" >> $GITHUB_OUTPUT
+
+      # Step 2: Clone the target repository using the parsed name
       - name: Clone the site repository
-        # This checks out the *source code* of the website
+        # This uses the 'actions/checkout' action to perform a git clone
         uses: actions/checkout@v4
         with:
-          repository: 'quiz-30/quiz-30.github.io' # The repo to clone
-          path: 'quiz-30.github.io'         # The folder to clone it into
+          # This will be 'quiz-30/quiz-30.github.io'
+          repository: ${{ steps.parse.outputs.full_name }}
+          # This will download the files into a folder named 'quiz-30.github.io'
+          path: ${{ steps.parse.outputs.dir_name }}
 
-      # Step 2: Upload the cloned files as an artifact
+      # Step 3: Upload the cloned files as an artifact
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: website-source
-          path: quiz-30.github.io
+          path: ${{ steps.parse.outputs.dir_name }}
