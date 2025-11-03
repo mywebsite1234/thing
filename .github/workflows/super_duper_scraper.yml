@@ -7,7 +7,7 @@
 # 4. It repeats this process for every page it finds.
 # 5. It rewrites all links to work locally for a full offline mirror.
 
-name: Advanced JS Crawler (for game websites(I think))
+name: Advanced JS Crawler (for websites(I think))
 
 # This allows you to run the workflow manually from the Actions tab
 on:
@@ -81,7 +81,7 @@ jobs:
                 localPath = path.join(localPath, "index.html");
               }
               // If path has no extension AND no query string, append .html
-              else if (path.extname(localPath) === "" && urlObj.search === "" && !localPath.endsWith("game.html")) {
+              else if (path.extname(localPath) === "" && urlObj.search === "") {
                  localPath += ".html";
               }
               // Handle json file
@@ -131,10 +131,9 @@ jobs:
 
                 console.log(`\n[*] Crawling: ${currentUrl}`);
                 
-                // Handle JSON file or game.html download separately (NO PARSING)
-                if (currentUrl.endsWith(".json") || currentUrl.endsWith("game.html")) {
-                  const fileName = currentUrl.endsWith(".json") ? "JSON" : "game.html";
-                  console.log(`  [*] This is a ${fileName} file. Downloading directly without parsing.`);
+                // Handle JSON file download separately (NO PARSING)
+                if (currentUrl.endsWith(".json")) {
+                  console.log("  [*] This is a JSON file. Downloading directly without parsing.");
                   await downloadAsset(currentUrl, getLocalPath(currentUrl));
                   continue;
                 }
