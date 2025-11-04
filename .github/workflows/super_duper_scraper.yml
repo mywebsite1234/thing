@@ -6,6 +6,8 @@
 # 3. It finds all links (<a> tags) on the same domain and adds them to a queue.
 # 4. It repeats this process for every page it finds.
 # 5. It rewrites all links to work locally for a full offline mirror.
+# 6. It has special rules to download 'game.html' and 'games.json' directly
+#    to prevent them from being parsed and broken.
 
 name: Advanced JS Crawler (for websites(I think))
 
@@ -60,11 +62,13 @@ jobs:
             const saveDir = "'"$DOMAIN"'";
 
             // Add the base URL, plus known critical files
-            const queue = [
-              baseUrl,
+            // These files will be downloaded directly, NOT parsed.
+            const directDownloadFiles = [
               new url.URL("game.html", baseUrl).href,
               new url.URL("games.json", baseUrl).href
             ];
+
+            const queue = [baseUrl]; // Start with only the base URL
             const visited = new Set();
             let browser;
 
@@ -84,10 +88,6 @@ jobs:
               else if (path.extname(localPath) === "" && urlObj.search === "") {
                  localPath += ".html";
               }
-              // Handle json file
-              else if (path.extname(localPath) === ".json") {
-                 // it is already correct
-              }
               return localPath;
             }
 
@@ -100,7 +100,6 @@ jobs:
                 }
                 
                 if (fs.existsSync(savePath)) {
-                  // console.log(`  [~] Skipping asset (already downloaded): ${assetUrl}`);
                   return;
                 }
 
@@ -121,23 +120,26 @@ jobs:
               console.log("[*] Launching headless browser...");
               browser = await puppeteer.launch({ args: ["--no-sandbox", "--disable-setuid-sandbox"] });
 
+              // First, download all the special files directly
+              console.log("[*] Downloading critical files (game.html, games.json)...");
+              const directDownloadPromises = directDownloadFiles.map(fileUrl => {
+                visited.add(fileUrl); // Mark as "visited" so crawler ignores them
+                return downloadAsset(fileUrl, getLocalPath(fileUrl));
+              });
+              await Promise.all(directDownloadPromises);
+              console.log("[*] Critical files downloaded.");
+
+              // Now, start the main crawl
               while (queue.length > 0) {
-                const currentUrl = queue.shift(); // This is a BASE URL (no query)
+                const currentUrl = queue.shift();
 
                 if (visited.has(currentUrl)) {
                   continue;
                 }
-                visited.add(currentUrl); // Add the BASE URL to visited set
+                visited.add(currentUrl); 
 
                 console.log(`\n[*] Crawling: ${currentUrl}`);
                 
-                // Handle JSON file download separately (NO PARSING)
-                if (currentUrl.endsWith(".json")) {
-                  console.log("  [*] This is a JSON file. Downloading directly without parsing.");
-                  await downloadAsset(currentUrl, getLocalPath(currentUrl));
-                  continue;
-                }
-
                 const page = await browser.newPage();
                 let html;
 
@@ -171,14 +173,12 @@ jobs:
                     let localAssetPath = path.join(saveDir, urlObject.pathname.substring(1));
 
                     if(localAssetPath.endsWith("/")) {
-                      // Should not happen for an asset, but good to check
                       localAssetPath = path.join(localAssetPath, "index.html");
                     }
 
                     assetPromises.push(downloadAsset(absoluteUrl, localAssetPath));
                     
                     // Rewrite the link in the HTML to point to the local file
-                    // We need to calculate the relative path from the *HTML file* to the *asset file*
                     const relativeAssetPath = path.relative(path.dirname(localPagePath), localAssetPath);
                     $(element).attr(assetAttr, relativeAssetPath);
                   }
@@ -196,17 +196,14 @@ jobs:
                   if (absoluteUrl.startsWith("http") && urlObj.hostname.endsWith(baseHostname)) {
                     
                     // --- Crawling Logic ---
-                    // Get the base URL (without query string) for the queue
                     const crawlUrl = urlObj.origin + urlObj.pathname;
                     if (!visited.has(crawlUrl) && !queue.includes(crawlUrl)) {
                       console.log(`  [->] Found new page to crawl: ${crawlUrl}`);
-                      queue.push(crawlUrl); // Only add the base URL to the queue
+                      queue.push(crawlUrl);
                     }
                     
                     // --- Rewrite Logic ---
-                    // Get the local path *without* query string
                     const localHtmlPath = getLocalPath(absoluteUrl); 
-                    // Get the relative path from current HTML to target HTML
                     const relativeLinkPath = path.relative(path.dirname(localPagePath), localHtmlPath);
                     // Re-add the query string (e.g., "?target=1")
                     const finalLink = relativeLinkPath + urlObj.search; 
